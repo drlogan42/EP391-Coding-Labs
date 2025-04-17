@@ -1,0 +1,16 @@
+#define VREF 5.0
+#define R1 10000.0
+#define R2 10000.0
+
+uint16_t readADC(uint8_t channel) {
+    ADMUX = (ADMUX & 0xF0) | (channel & 0x0F); // select ADC channel
+    ADCSRA |= (1 << ADSC);                    // start conversion
+    while (ADCSRA & (1 << ADSC));             // wait for conversion to finish
+    return ADC;
+}
+
+float readBatteryVoltage() {
+    uint16_t adc_value = readADC(0); // Assuming battery divider is on ADC0
+    float v_adc = (adc_value / 1023.0) * VREF;
+    return v_adc * ((R1 + R2) / R2); // Scale back to original voltage
+}
