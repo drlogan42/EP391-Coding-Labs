@@ -1,0 +1,7 @@
+float readCurrent() {
+    uint16_t adc_value = readADC(1); // Assume current sensor on ADC1
+    float v_sense = (adc_value / 1023.0) * VREF;
+    float gain = 10.0; // Depends on your op-amp config
+    float voltage_across_shunt = v_sense / gain;
+    return voltage_across_shunt / 1.0; // Ohm’s Law, R = 1Ω
+}
