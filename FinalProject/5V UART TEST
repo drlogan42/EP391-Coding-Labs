@@ -1,0 +1,75 @@
+//This program will test for a given input voltage (+5V rail) on ADC0 and output the voltage over UART to be observed in PuTTY
+
+//Definitions
+#define F_CPU 1000000UL
+#define UART_UBRR_VALUE 12UL  // For 9600 baud with U2X0 = 1
+
+//Includes
+#include <avr/io.h>
+#include <util/delay.h>
+#include <stdlib.h>
+
+//Function Prototypes
+void adc_init(void);
+void uart_init(void);				//Initialize AVR UART
+void write_uart(char* c);			//Write String to UART
+uint16_t analog(uint8_t channel);	//Read any ADC channel and get 10-bit result
+
+//Constants
+int VoltCounts = 900;	//Set to 900 since ADC returns 0 -> 1023 (5V), 5*(900/1023) = 4.4V
+
+//Main
+int main(void) {
+	//Initialize UART and ADC
+	uart_init();
+	adc_init();
+
+	//While loop runs forever
+	while (1) {
+		uint16_t adc_val = analog(0);  // Read from ADC0 (PA0)
+
+		if (adc_val > VoltCounts) {		//Reads if the ADC detects over the counts in VoltCounts, set in constants
+			write_uart("5V Present\r\n");
+			} else {
+			write_uart("No Voltage\r\n");
+		}
+
+		_delay_ms(100);		//Delay for readability
+	}
+
+	return 0;
+}
+
+//UART Setup Function
+void uart_init(void) {
+	//Set BAUD rate registers (UBRR0H:UBRR0L) for 9600 bps
+	UBRR0H = (uint8_t)(UART_UBRR_VALUE >> 8);	//Load high byte of baud value
+	UBRR0L = (uint8_t)(UART_UBRR_VALUE);		//Load low byte of baud value
+	
+	UCSR0A |= (1 << U2X0);						// Double speed U2X0 = 1
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);		// 8 data bits, no parity, 1 stop bit
+	UCSR0B = (1 << TXEN0);						// Enable TX
+}
+
+//Write UART Function
+void write_uart(char* c) {
+	while (*c) {							//Loop through each char in string until null terminator '\0'
+		while (!(UCSR0A & (1 << UDRE0)));	//Wait until buffer is empty (ready to send)
+		UDR0 = *c++;						//Load char into UART data register to transmit and move to next char
+	}
+}
+
+//ADC Setup Function
+void adc_init(void) {
+	ADMUX = (1 << REFS0);					//AVCC as reference
+	ADCSRA = (1 << ADEN)					//Enable ADC 
+	| (1 << ADPS1) | (1 << ADPS0);			//Prescaler = 8 (1 MHz / 8 = 125 kHz)
+}											//Result is Right Adjusted for precise measurement 
+
+//ADC Read
+uint16_t analog(uint8_t channel) {
+	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F);		//Select ADC channel
+	ADCSRA |= (1 << ADSC);							//Start conversion
+	while (ADCSRA & (1 << ADSC));					//Wait for conversion to finish
+	return ADC;										//Return 10-bit result
+}
