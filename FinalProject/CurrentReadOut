@@ -1,93 +1,90 @@
-//This program will measure the voltage across a 1Ω shunt resistor (ADC1 - ADC2),
-//convert it to current using Ohm's Law, and send the result over UART to PuTTY.
+// This program turns on an LED connected to PC0 to create a measurable load,
+// reads the current across a 1Ω shunt using ADC1 and ADC2, and sends the value over UART.
 
-//Definitions
 #define F_CPU 1000000UL
-#define UART_UBRR_VALUE 12UL  // For 9600 baud with U2X0 = 1
+#define UART_UBRR_VALUE 12UL
+#define REFERENCEVOLTAGE 5.0
+#define SHUNT_RESISTANCE 1.0
 
-//Includes
 #include <avr/io.h>
 #include <util/delay.h>
 #include <stdlib.h>
 
-//Function Prototypes
+// Function Prototypes
 void adc_init(void);
-void uart_init(void);				
-void write_uart(char* c);			
-uint16_t analog(uint8_t channel);	
-void send_current(float current);	
+void uart_init(void);
+void write_uart(char* c);
+uint16_t analog(uint8_t channel);
+void send_current(float current);
+void load_init(void);
 
-//Constants
-#define REFERENCEVOLTAGE 5.0	// Reference voltage (AVCC)
-#define SHUNT_RESISTANCE 1.0	// Shunt resistor value in ohms
-
-//Main
+// ----------- MAIN ------------
 int main(void) {
-	uart_init();	//Initialize UART
-	adc_init();		//Initialize ADC
+	uart_init();
+	adc_init();
+	load_init();	// Set up LED pin
 
 	while (1) {
-		// Read voltages from both ends of the shunt resistor
-		uint16_t adc_val_top = analog(1);	// ADC1: system ground (top of shunt)
-		uint16_t adc_val_bottom = analog(2); // ADC2: battery ground (bottom of shunt)
+		// Turn on the LED load (set PC0 HIGH)
+		PORTC |= (1 << PC0);
 
-		// Convert ADC readings to voltages
+		// Read voltages across shunt
+		uint16_t adc_val_top = analog(1);	// ADC1
+		uint16_t adc_val_bottom = analog(2); // ADC2
+
 		float v_top = (adc_val_top / 1023.0) * REFERENCEVOLTAGE;
 		float v_bottom = (adc_val_bottom / 1023.0) * REFERENCEVOLTAGE;
-
-		// Voltage drop across the shunt
 		float v_shunt = v_top - v_bottom;
-
-		// Calculate current using Ohm’s Law: I = V / R
 		float current = v_shunt / SHUNT_RESISTANCE;
 
-		// Send current reading via UART
 		send_current(current);
 
-		_delay_ms(100);	//Delay for readability
+		_delay_ms(500);
 	}
-
 	return 0;
 }
 
-//UART Setup Function
-void uart_init(void) {
-	UBRR0H = (uint8_t)(UART_UBRR_VALUE >> 8);	
-	UBRR0L = (uint8_t)(UART_UBRR_VALUE);		
-	UCSR0A |= (1 << U2X0);						
-	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);		
-	UCSR0B = (1 << TXEN0);						
+// ---------- LED Load Init ------------
+void load_init(void) {
+	DDRC |= (1 << PC0);	// Set PC0 (pin 23) as output
 }
 
-//Write UART Function
+// ---------- UART Init ----------
+void uart_init(void) {
+	UBRR0H = (uint8_t)(UART_UBRR_VALUE >> 8);
+	UBRR0L = (uint8_t)(UART_UBRR_VALUE);
+	UCSR0A |= (1 << U2X0);
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+	UCSR0B = (1 << TXEN0);
+}
+
+// ---------- Write UART ----------
 void write_uart(char* c) {
 	while (*c) {
-		while (!(UCSR0A & (1 << UDRE0)));	
+		while (!(UCSR0A & (1 << UDRE0)));
 		UDR0 = *c++;
 	}
 }
 
-//ADC Setup Function
+// ---------- ADC Init ----------
 void adc_init(void) {
-	ADMUX = (1 << REFS0);					
-	ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0);	
+	ADMUX = (1 << REFS0);
+	ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0);
 }
 
-//ADC Read Function
+// ---------- ADC Read ----------
 uint16_t analog(uint8_t channel) {
-	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F);	
-	ADCSRA |= (1 << ADSC);						
-	while (ADCSRA & (1 << ADSC));				
-	return ADC;									
+	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F);
+	ADCSRA |= (1 << ADSC);
+	while (ADCSRA & (1 << ADSC));
+	return ADC;
 }
 
-//Send Current Function
-void send_current(float current){
-	char buffer[32];					
-	dtostrf(current, 2, 4, buffer);		//Convert float to string (2-wide, 4 decimal places)
-
-	//Write to UART
+// ---------- Send Current ----------
+void send_current(float current) {
+	char buffer[32];
+	dtostrf(current, 2, 4, buffer);
 	write_uart("Current: ");
-	write_uart(buffer);					
-	write_uart(" A\r\n");				
+	write_uart(buffer);
+	write_uart(" A\r\n");
 }
