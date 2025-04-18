@@ -1,10 +1,11 @@
-// This program turns on an LED connected to PC0 to create a measurable load,
-// reads the current across a 1Ω shunt using ADC1 and ADC2, and sends the value over UART.
+// This program reads the output of an op-amp connected to a 1Ω shunt,
+// amplifies it (via hardware), then computes and displays the current over UART.
 
 #define F_CPU 1000000UL
-#define UART_UBRR_VALUE 12UL
-#define REFERENCEVOLTAGE 5.0
-#define SHUNT_RESISTANCE 1.0
+#define UART_UBRR_VALUE 12UL  // 9600 baud
+#define REFERENCEVOLTAGE 5.0  // ADC reference (AVCC)
+#define SHUNT_RESISTANCE 1.0  // 1Ω shunt
+#define AMPLIFIER_GAIN 11.0   // Set based on resistor values: 1 + (Rf / Rin)
 
 #include <avr/io.h>
 #include <util/delay.h>
@@ -16,37 +17,29 @@ void uart_init(void);
 void write_uart(char* c);
 uint16_t analog(uint8_t channel);
 void send_current(float current);
-void load_init(void);
 
-// ----------- MAIN ------------
+// ---------- MAIN ----------
 int main(void) {
-	uart_init();
-	adc_init();
-	load_init();	// Set up LED pin
+	uart_init();	// Initialize UART
+	adc_init();		// Initialize ADC
 
 	while (1) {
-		// Turn on the LED load (set PC0 HIGH)
-		PORTC |= (1 << PC0);
+		uint16_t adc_val = analog(1);	// Read from ADC1 (amplifier output)
 
-		// Read voltages across shunt
-		uint16_t adc_val_top = analog(1);	// ADC1
-		uint16_t adc_val_bottom = analog(2); // ADC2
+		// Convert ADC value to amplified voltage
+		float v_amplified = (adc_val / 1023.0) * REFERENCEVOLTAGE;
 
-		float v_top = (adc_val_top / 1023.0) * REFERENCEVOLTAGE;
-		float v_bottom = (adc_val_bottom / 1023.0) * REFERENCEVOLTAGE;
-		float v_shunt = v_top - v_bottom;
+		// Recover actual shunt voltage by dividing by gain
+		float v_shunt = v_amplified / AMPLIFIER_GAIN;
+
+		// Calculate current: I = V / R
 		float current = v_shunt / SHUNT_RESISTANCE;
 
 		send_current(current);
 
-		_delay_ms(500);
+		_delay_ms(500);	// Delay for readability
 	}
 	return 0;
-}
-
-// ---------- LED Load Init ------------
-void load_init(void) {
-	DDRC |= (1 << PC0);	// Set PC0 (pin 23) as output
 }
 
 // ---------- UART Init ----------
@@ -58,7 +51,7 @@ void uart_init(void) {
 	UCSR0B = (1 << TXEN0);
 }
 
-// ---------- Write UART ----------
+// ---------- UART Write ----------
 void write_uart(char* c) {
 	while (*c) {
 		while (!(UCSR0A & (1 << UDRE0)));
@@ -68,22 +61,22 @@ void write_uart(char* c) {
 
 // ---------- ADC Init ----------
 void adc_init(void) {
-	ADMUX = (1 << REFS0);
-	ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0);
+	ADMUX = (1 << REFS0); // AVCC reference
+	ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0); // Enable ADC, prescaler 8
 }
 
 // ---------- ADC Read ----------
 uint16_t analog(uint8_t channel) {
-	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F);
-	ADCSRA |= (1 << ADSC);
-	while (ADCSRA & (1 << ADSC));
-	return ADC;
+	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F); // Select channel
+	ADCSRA |= (1 << ADSC);                    // Start conversion
+	while (ADCSRA & (1 << ADSC));             // Wait for conversion
+	return ADC;                               // Return 10-bit result
 }
 
 // ---------- Send Current ----------
 void send_current(float current) {
 	char buffer[32];
-	dtostrf(current, 2, 4, buffer);
+	dtostrf(current, 2, 4, buffer);  // Format float to string
 	write_uart("Current: ");
 	write_uart(buffer);
 	write_uart(" A\r\n");
