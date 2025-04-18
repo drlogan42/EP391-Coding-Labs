@@ -1,16 +1,85 @@
-#define VREF 5.0
-#define R1 10000.0
-#define R2 10000.0
+//This program will test for a given input voltage from battery on ADC0 and output the voltage over UART to be observed in PuTTY
 
-uint16_t readADC(uint8_t channel) {
-    ADMUX = (ADMUX & 0xF0) | (channel & 0x0F); // select ADC channel
-    ADCSRA |= (1 << ADSC);                    // start conversion
-    while (ADCSRA & (1 << ADSC));             // wait for conversion to finish
-    return ADC;
+//Definitions
+#define F_CPU 1000000UL
+#define UART_UBRR_VALUE 12UL  // For 9600 baud with U2X0 = 1
+
+//Includes
+#include <avr/io.h>
+#include <util/delay.h>
+#include <stdlib.h>
+
+//Function Prototypes
+void adc_init(void);
+void uart_init(void);				//Initialize AVR UART
+void write_uart(char* c);			//Write String to UART
+uint16_t analog(uint8_t channel);	//Read any ADC channel and get 10-bit result
+void send_voltage(float voltage);	//Sends read voltage
+
+//Constants
+int VoltCounts = 900;				//Set to 900 since ADC returns 0 -> 1023 (5V), 5*(900/1023) = 4.4V
+int REFERENCEVOLTAGE = 5;			//Set reference voltage to 5V
+float DIVFACTOR = 0.333333;			//Multiply voltage after division to get voltage at battery terminals
+
+//Main
+int main(void) {
+	//Initialize UART and ADC
+	uart_init();
+	adc_init();
+
+	//While loop runs forever
+	while (1) {
+		uint16_t adc_val = analog(0);										//Read from ADC0 (PA0)
+		float voltage = ((adc_val / 1023.0)*REFERENCEVOLTAGE)/DIVFACTOR;	//Convert ADC reading to a voltage value with Vmeas= (adc/1023) * ReferenceVoltage
+		send_voltage(voltage);												//Send voltage over to UART
+		_delay_ms(100);														//Delay for readability
+	}
+	return 0;
 }
 
-float readBatteryVoltage() {
-    uint16_t adc_value = readADC(0); // Assuming battery divider is on ADC0
-    float v_adc = (adc_value / 1023.0) * VREF;
-    return v_adc * ((R1 + R2) / R2); // Scale back to original voltage
+//UART Setup Function
+void uart_init(void) {
+	
+	//Set BAUD rate registers (UBRR0H:UBRR0L) for 9600 bps
+	UBRR0H = (uint8_t)(UART_UBRR_VALUE >> 8);	//Load high byte of baud value
+	UBRR0L = (uint8_t)(UART_UBRR_VALUE);		//Load low byte of baud value
+	
+	UCSR0A |= (1 << U2X0);						//Double speed U2X0 = 1
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);		//8 data bits, no parity, 1 stop bit
+	UCSR0B = (1 << TXEN0);						//Enable TX
+}
+
+//Write UART Function
+void write_uart(char* c) {
+	while (*c) {							//Loop through each char in string until null terminator '\0'
+		while (!(UCSR0A & (1 << UDRE0)));	//Wait until buffer is empty (ready to send)
+		UDR0 = *c++;						//Load char into UART data register to transmit and move to next char
+	}
+}
+
+//ADC Setup Function
+void adc_init(void) {
+	ADMUX = (1 << REFS0);					//AVCC as reference
+	ADCSRA = (1 << ADEN)					//Enable ADC 
+	| (1 << ADPS1) | (1 << ADPS0);			//Prescaler = 8 (1 MHz / 8 = 125 kHz)
+}											//Result is Right Adjusted for precise measurement 
+
+//ADC Read Function
+uint16_t analog(uint8_t channel) {
+	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F);		//Select ADC channel
+	ADCSRA |= (1 << ADSC);							//Start conversion
+	while (ADCSRA & (1 << ADSC));					//Wait for conversion to finish
+	return ADC;										//Return 10-bit result
+}
+
+//Send Voltage Function
+void send_voltage(float voltage){
+	char buffer[32];					//Hold string in a buffer
+	
+	dtostrf(voltage, 2, 4, buffer);		//Convert float to string (width=6, precision=2)
+	
+	//Write to UART
+	write_uart("Voltage: ");
+	write_uart(buffer);					//Contents of voltage
+	write_uart(" V\r\n");				//Newline
 }
