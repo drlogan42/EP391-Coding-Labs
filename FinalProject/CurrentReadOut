@@ -1,11 +1,11 @@
-// This program reads the output of an op-amp connected to a 1Ω shunt,
-// amplifies it (via hardware), then computes and displays the current over UART.
+// ATmega644PA Test Program: Measures current via op-amp from shunt and outputs via UART
+// Load connected to Pin 22 (PD4)
 
 #define F_CPU 1000000UL
-#define UART_UBRR_VALUE 12UL  // 9600 baud
-#define REFERENCEVOLTAGE 5.0  // ADC reference (AVCC)
-#define SHUNT_RESISTANCE 1.0  // 1Ω shunt
-#define AMPLIFIER_GAIN 11.0   // Set based on resistor values: 1 + (Rf / Rin)
+#define UART_UBRR_VALUE 12UL  // 9600 baud with U2X0 = 1
+#define REFERENCEVOLTAGE 5.0  // ADC reference = AVCC
+#define SHUNT_RESISTANCE 1.0  // Ohms
+#define AMPLIFIER_GAIN 3.0    // Based on resistor divider: 1 + (Rf / Rin)
 
 #include <avr/io.h>
 #include <util/delay.h>
@@ -17,29 +17,44 @@ void uart_init(void);
 void write_uart(char* c);
 uint16_t analog(uint8_t channel);
 void send_current(float current);
+void load_init(void);
+void load_on(void);
 
-// ---------- MAIN ----------
+// Main
 int main(void) {
-	uart_init();	// Initialize UART
-	adc_init();		// Initialize ADC
+	uart_init();
+	adc_init();
+	load_init();
 
 	while (1) {
-		uint16_t adc_val = analog(1);	// Read from ADC1 (amplifier output)
+		load_on();  // Turn on test load on PD4
 
-		// Convert ADC value to amplified voltage
+		// Read amplified shunt voltage from ADC1 (Pin 40)
+		uint16_t adc_val = analog(1);  // ADC1 = PA1
+
+		// Convert ADC value to voltage
 		float v_amplified = (adc_val / 1023.0) * REFERENCEVOLTAGE;
 
-		// Recover actual shunt voltage by dividing by gain
+		// Recover actual shunt voltage
 		float v_shunt = v_amplified / AMPLIFIER_GAIN;
 
-		// Calculate current: I = V / R
+		// Calculate current using Ohm's Law
 		float current = v_shunt / SHUNT_RESISTANCE;
 
 		send_current(current);
 
-		_delay_ms(500);	// Delay for readability
+		_delay_ms(500);  // Delay for readability
 	}
 	return 0;
+}
+
+// ---------- Load Setup ----------
+void load_init(void) {
+	DDRD |= (1 << PD4);  // Set PD4 (Pin 22) as output
+}
+
+void load_on(void) {
+	PORTD |= (1 << PD4);  // Set PD4 high to source current through test load
 }
 
 // ---------- UART Init ----------
@@ -51,7 +66,7 @@ void uart_init(void) {
 	UCSR0B = (1 << TXEN0);
 }
 
-// ---------- UART Write ----------
+// ---------- UART Send ----------
 void write_uart(char* c) {
 	while (*c) {
 		while (!(UCSR0A & (1 << UDRE0)));
@@ -61,22 +76,22 @@ void write_uart(char* c) {
 
 // ---------- ADC Init ----------
 void adc_init(void) {
-	ADMUX = (1 << REFS0); // AVCC reference
-	ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0); // Enable ADC, prescaler 8
+	ADMUX = (1 << REFS0);  // AVCC as reference
+	ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0);  // Enable ADC, prescaler 8
 }
 
 // ---------- ADC Read ----------
 uint16_t analog(uint8_t channel) {
-	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F); // Select channel
-	ADCSRA |= (1 << ADSC);                    // Start conversion
-	while (ADCSRA & (1 << ADSC));             // Wait for conversion
-	return ADC;                               // Return 10-bit result
+	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F);  // Select ADC channel
+	ADCSRA |= (1 << ADSC);  // Start conversion
+	while (ADCSRA & (1 << ADSC));
+	return ADC;
 }
 
 // ---------- Send Current ----------
 void send_current(float current) {
 	char buffer[32];
-	dtostrf(current, 2, 4, buffer);  // Format float to string
+	dtostrf(current, 2, 4, buffer);
 	write_uart("Current: ");
 	write_uart(buffer);
 	write_uart(" A\r\n");
