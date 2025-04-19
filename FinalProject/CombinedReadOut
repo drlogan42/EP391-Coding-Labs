@@ -1,0 +1,104 @@
+#define F_CPU 1000000UL
+#define UART_UBRR_VALUE 12UL   // 9600 baud with U2X0 = 1
+#define REFERENCEVOLTAGE 5.0   // AVCC reference
+#define SHUNT_RESISTANCE 1.0   // Ohms
+#define AMPLIFIER_GAIN 100.0   // Op-amp gain
+#define DIVFACTOR 0.333333     // Voltage divider scale factor for battery voltage
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include <stdlib.h>
+
+// ---------- Function Prototypes ----------
+void adc_init(void);
+void uart_init(void);
+void write_uart(char* c);
+uint16_t analog(uint8_t channel);
+void send_current(float current);
+void send_voltage(float voltage);
+void load_init(void);
+void load_on(void);
+
+// ---------- MAIN ----------
+int main(void) {
+	uart_init();
+	adc_init();
+	load_init();
+
+	while (1) {
+		load_on();  // Enable test load (PD4 HIGH)
+
+		// ---------- Voltage Reading ----------
+		uint16_t adc_val_voltage = analog(0);  // ADC0 (PA0)
+		float v_measured = (adc_val_voltage / 1023.0) * REFERENCEVOLTAGE;
+		float battery_voltage = v_measured / DIVFACTOR;  // Compensate for voltage divider
+		send_voltage(battery_voltage);
+
+		// ---------- Current Reading ----------
+		uint16_t adc_val_current = analog(1);  // ADC1 (PA1)
+		float v_amplified = (adc_val_current / 1023.0) * REFERENCEVOLTAGE;
+		float v_shunt = v_amplified / AMPLIFIER_GAIN;
+		float current = v_shunt / SHUNT_RESISTANCE;
+		send_current(current);
+
+		_delay_ms(500);  // Readability delay
+	}
+
+	return 0;
+}
+
+// ---------- Load Control ----------
+void load_init(void) {
+	DDRD |= (1 << PD4);  // PD4 (Pin 22) as output
+}
+void load_on(void) {
+	PORTD |= (1 << PD4);  // Turn on load
+}
+
+// ---------- UART Init ----------
+void uart_init(void) {
+	UBRR0H = (uint8_t)(UART_UBRR_VALUE >> 8);
+	UBRR0L = (uint8_t)(UART_UBRR_VALUE);
+	UCSR0A |= (1 << U2X0);  // Double speed
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);  // 8 data bits, no parity, 1 stop
+	UCSR0B = (1 << TXEN0);  // Enable TX
+}
+
+// ---------- UART Write ----------
+void write_uart(char* c) {
+	while (*c) {
+		while (!(UCSR0A & (1 << UDRE0)));
+		UDR0 = *c++;
+	}
+}
+
+// ---------- ADC Init ----------
+void adc_init(void) {
+	ADMUX = (1 << REFS0);  // AVCC reference
+	ADCSRA = (1 << ADEN) | (1 << ADPS1) | (1 << ADPS0);  // Enable ADC, prescaler 8
+}
+
+// ---------- ADC Read ----------
+uint16_t analog(uint8_t channel) {
+	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F);  // Select ADC channel
+	ADCSRA |= (1 << ADSC);  // Start conversion
+	while (ADCSRA & (1 << ADSC));
+	return ADC;
+}
+
+// ---------- UART Print Functions ----------
+void send_current(float current) {
+	char buffer[32];
+	dtostrf(current, 2, 4, buffer);
+	write_uart("Current: ");
+	write_uart(buffer);
+	write_uart(" A\r\n");
+}
+
+void send_voltage(float voltage) {
+	char buffer[32];
+	dtostrf(voltage, 2, 4, buffer);
+	write_uart("Voltage: ");
+	write_uart(buffer);
+	write_uart(" V\r\n");
+}
