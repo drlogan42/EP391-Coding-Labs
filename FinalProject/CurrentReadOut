@@ -5,7 +5,7 @@
 #define UART_UBRR_VALUE 12UL  // 9600 baud with U2X0 = 1
 #define REFERENCEVOLTAGE 5.0  // ADC reference = AVCC
 #define SHUNT_RESISTANCE 1.0  // Ohms
-#define AMPLIFIER_GAIN 3.0    // Based on resistor divider: 1 + (Rf / Rin)
+#define AMPLIFIER_GAIN 100    // Based on resistor divider: 1 + (Rf / Rin)
 
 #include <avr/io.h>
 #include <util/delay.h>
