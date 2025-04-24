@@ -1,0 +1,35 @@
+clc; clear; close all;
+
+% Setup serial port
+s = serialport("COM7", 9600);
+configureTerminator(s, "CR/LF");
+flush(s);                    % Clear any stale data
+s.Timeout = 10;
+
+% Allocate arrays for samples
+N = 500;                     % Number of readings
+data = nan(N, 8);            % 8 ADC values per row
+
+i = 1;
+while i <= N
+    try
+        line = readline(s);              % Read one full line
+        values = str2double(split(line, ',')); % Split and convert to numbers
+        if length(values) == 8 && all(~isnan(values))
+            data(i, :) = values;
+            i = i + 1;
+        end
+    catch ME
+        warning("Read failed: %s", ME.message);
+    end
+end
+
+disp("Data capture complete.");
+
+% Optional: plot raw data
+figure;
+plot(data);
+legend("ADC0","ADC1","ADC2","ADC3","ADC4","ADC5","ADC6","ADC7");
+xlabel("Sample #");
+ylabel("ADC Value (0–1023)");
+title("Raw ADC Readings from AVR");
